@@ -14,7 +14,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 shop_enabled = True
 
 
-def is_shop_admin(interaction):
+def is_admin(interaction):
     return (
         interaction.user.guild_permissions.administrator
         or any(role.name == ADMIN_ROLE_NAME
@@ -22,79 +22,123 @@ def is_shop_admin(interaction):
     )
 
 
-class ListingModal(discord.ui.Modal, title="Phantom-Mart | New Listing"):
-    product = discord.ui.TextInput(
-        label="Product Name",
-        placeholder="Example: Minecraft Rank",
-        max_length=100
-    )
-
-    price = discord.ui.TextInput(
-        label="Price",
-        placeholder="Example: ₹199",
-        max_length=50
-    )
-
-    stock = discord.ui.TextInput(
-        label="Stock",
-        placeholder="Example: 5 available",
-        max_length=50
-    )
-
-    description = discord.ui.TextInput(
-        label="Description",
-        style=discord.TextStyle.paragraph,
-        max_length=500
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        if not is_shop_admin(interaction):
-            await interaction.response.send_message(
-                "You are not authorised.",
-                ephemeral=True
-            )
-            return
-
-        if not shop_enabled:
-            await interaction.response.send_message(
-                "Shop listings are currently OFF.",
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.send_message(
-            "Choose the channel for this listing:",
-            view=ChannelSelectView(),
-            ephemeral=True
-        )
-
-
-class ChannelSelect(discord.ui.ChannelSelect):
+class ListingModal(discord.ui.Modal, title="Phantom-Mart Listing"):
     def __init__(self):
-        super().__init__(
-            channel_types=[discord.ChannelType.text],
-            placeholder="Select shop channel",
-            min_values=1,
-            max_values=1
+        super().__init__()
+
+        self.product = discord.ui.TextInput(
+            label="Product Name",
+            placeholder="Minecraft Rank",
+            max_length=100
         )
 
-    async def callback(self, interaction):
-        if not is_shop_admin(interaction):
+        self.price = discord.ui.TextInput(
+            label="Price",
+            placeholder="₹199",
+            max_length=50
+        )
+
+        self.stock = discord.ui.TextInput(
+            label="Stock",
+            placeholder="5 available",
+            max_length=50
+        )
+
+        self.description = discord.ui.TextInput(
+            label="Description",
+            style=discord.TextStyle.paragraph,
+            max_length=500
+        )
+
+        self.add_item(self.product)
+        self.add_item(self.price)
+        self.add_item(self.stock)
+        self.add_item(self.description)
+
+    async def on_submit(self, interaction):
+        if not is_admin(interaction):
             await interaction.response.send_message(
                 "Not authorised.", ephemeral=True
             )
             return
 
+        if not shop_enabled:
+            await interaction.response.send_message(
+                "Shop is currently OFF.", ephemeral=True
+            )
+            return
+
         await interaction.response.send_message(
-            "Please submit the listing details again using the panel.",
+            "Choose where to publish this listing:",
+            view=PublishView(
+                self.product.value,
+                self.price.value,
+                self.stock.value,
+                self.description.value
+            ),
             ephemeral=True
         )
 
 
-class ChannelSelectView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=180)
-        self.add_item(ChannelSelect())
+class PublishView(discord.ui.View):
+    def __init__(self, product, price, stock, description):
+        super().__init__(timeout=300)
+        self.product = product
+        self.price = price
+        self.stock = stock
+        self.description = description
+
+        self.add_item(ChannelPicker(self))
+
+    async def publish(self, interaction, channel):
+        if not is_admin(interaction):
+            await interaction.response.send_message(
+                "Not authorised.", ephemeral=True
+            )
+            return
+
+        if not shop_enabled:
+            await interaction.response.send_message(
+                "Shop is OFF.", ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"🛒 {self.product}",
+            description=self.description,
+            color=discord.Color.blue()
+        )
+
+        embed.add_field(name="💰 Price", value=self.price, inline=True)
+        embed.add_field(name="📦 Stock", value=self.stock, inline=True)
+        embed.set_footer(text="PHANTOM-MART | OFFICIAL SHOP")
+
+        try:
+            await channel.send(embed=embed)
+            await interaction.response.send_message(
+                f"✅ Listing published in {channel.mention}!",
+                ephemeral=True
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "I cannot send messages in that channel. Check my permissions.",
+                ephemeral=True
+            )
+
+
+class ChannelPicker(discord.ui.ChannelSelect):
+    def __init__(self, parent):
+        self.parent = parent
+        super().__init__(
+            channel_types=[discord.ChannelType.text],
+            placeholder="Select a shop channel",
+            min_values=1,
+            max_values=1
+        )
+
+    async def callback(self, interaction):
+        channel = self.values[0]
+        await self.parent.publish(interaction, channel)
 
 
 class ShopPanel(discord.ui.View):
@@ -107,18 +151,16 @@ class ShopPanel(discord.ui.View):
         emoji="🛒",
         custom_id="phantom:create"
     )
-    async def create_listing(self, interaction, button):
-        if not is_shop_admin(interaction):
+    async def create(self, interaction, button):
+        if not is_admin(interaction):
             await interaction.response.send_message(
-                "You are not authorised.",
-                ephemeral=True
+                "Not authorised.", ephemeral=True
             )
             return
 
         if not shop_enabled:
             await interaction.response.send_message(
-                "Shop is OFF.",
-                ephemeral=True
+                "Shop is OFF.", ephemeral=True
             )
             return
 
@@ -130,13 +172,12 @@ class ShopPanel(discord.ui.View):
         emoji="🔴",
         custom_id="phantom:toggle"
     )
-    async def toggle_shop(self, interaction, button):
+    async def toggle(self, interaction, button):
         global shop_enabled
 
-        if not is_shop_admin(interaction):
+        if not is_admin(interaction):
             await interaction.response.send_message(
-                "You are not authorised.",
-                ephemeral=True
+                "Not authorised.", ephemeral=True
             )
             return
 
@@ -158,14 +199,19 @@ async def on_ready():
 @commands.has_permissions(administrator=True)
 async def panel(ctx):
     embed = discord.Embed(
-        title="PHANTOM-MART",
-        description="Official Shop Management Panel\n\n"
-                    "Create and manage your product listings here.",
+        title="🔴 PHANTOM-MART",
+        description="Official Shop Listing Panel\n\n"
+                    "Create and publish your products easily.",
         color=discord.Color.blue()
     )
-    embed.set_footer(text="Phantom-Mart | Shop System")
+
+    embed.set_footer(text="PHANTOM-MART | SHOP MANAGEMENT")
 
     await ctx.send(embed=embed, view=ShopPanel())
 
 
+if not TOKEN:
+    raise RuntimeError("DISCORD_TOKEN is missing!")
+
 bot.run(TOKEN)
+
