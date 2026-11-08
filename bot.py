@@ -90,6 +90,7 @@ class PublishView(discord.ui.View):
 
         self.add_item(ChannelPicker(self))
 
+    
     async def publish(self, interaction, channel):
         if not is_admin(interaction):
             await interaction.response.send_message(
@@ -108,7 +109,6 @@ class PublishView(discord.ui.View):
             description=self.description,
             color=discord.Color.blue()
         )
-
         embed.add_field(name="💰 Price", value=self.price, inline=True)
         embed.add_field(name="📦 Stock", value=self.stock, inline=True)
         embed.set_footer(text="PHANTOM-MART | OFFICIAL SHOP")
@@ -116,15 +116,20 @@ class PublishView(discord.ui.View):
         try:
             await channel.send(embed=embed)
             await interaction.response.send_message(
-                f"✅ Listing published in {channel.mention}!",
+                f"✅ Published in {channel.mention}!",
                 ephemeral=True
             )
         except discord.Forbidden:
             await interaction.response.send_message(
-                "I cannot send messages in that channel. Check my permissions.",
+                "❌ Missing permission to send messages or embeds in that channel.",
                 ephemeral=True
             )
-
+        except Exception as error:
+            print(f"Publishing error: {error}")
+            await interaction.response.send_message(
+                f"❌ Publishing failed: {type(error).__name__}",
+                ephemeral=True
+            )
 
 class ChannelPicker(discord.ui.ChannelSelect):
     def __init__(self, parent):
